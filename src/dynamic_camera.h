@@ -37,16 +37,46 @@ struct DynamicCamera {
                 const sf::Vector2f& trackedPosWorld,      // world coords of player to track
                 const sf::Vector2f& trackedVelocityWorld  // world velocity of player to track
     ) {
-        // TODO: (HINTS/outline)
-        // collect statistics on the player position and velocity in (normalized, if you like)
-        // window coordinates. Compute lookAhead distance in world coords, adjusting for
-        // if the player is moving left or right.
-        // Now update lookAhead state using an EMA over its previous state and the lookAhead world
-        // vector. Then determine if the player is in the dead zone, soft rejection zone, or hard
-        // rejection zone. For each, perform EMA on the delta of the camera displacement (ignoring
-        // lookahead) appropriately. Next,
-        // set the camera center by offsetting the cameraUnadjustedCenter, combining lookAhead.
-        // Finally update cameraUnadjustedCenter, but without lookahead.
+        // Set the camera center to the unadjusted center from last fram with no lookahead
+        camera.setCameraCenter(cameraUnadjustedCenter);
+
+        // lookDir checks the direction of the tracked velocity, and lookAheadWorld is the world
+        // distance to look ahead in that direction
+        // Then we update the lookaheadState using an EMA with alpha
+        float lookDir = 0.f;
+        if (trackedVelocityWorld.x > 0.f) {
+            lookDir = 1.f;
+        } else if (trackedVelocityWorld.x < 0.f) {
+            lookDir = -1.f;
+        }
+        float lookAheadWorld = camera.windowPercentToWorldDist({lookAhead * lookDir, 0.f}).x;
+        lookaheadState = lookaheadState + alpha * (lookAheadWorld - lookaheadState);
+
+        // normalized player position in window percent coordinates
+        const float playerPercentX = camera.worldToWindowPercent(trackedPosWorld).x;
+        const float leftHard = softZoneX.min;   // red
+        const float leftSoft = deadZoneX.min;   // green
+        const float rightSoft = deadZoneX.max;  // green
+        const float rightHard = softZoneX.max;  // red
+
+        float deltaPercentX = 0.f;
+        if (playerPercentX < leftHard) {
+            // past the hard left limit, put the player on the red line
+            deltaPercentX = playerPercentX - leftHard;
+        } else if (playerPercentX > rightHard) {
+            deltaPercentX = playerPercentX - rightHard;
+        } else if (playerPercentX < leftSoft) {
+            // past the soft left limit, ease toward the green line
+            deltaPercentX = alpha * (playerPercentX - leftSoft);
+        } else if (playerPercentX > rightSoft) {
+            deltaPercentX = alpha * (playerPercentX - rightSoft);
+        }
+        // get the world distance to move the camera center by, and update the unadjusted camera
+        // center
+        float deltaWorldX = camera.windowPercentToWorldDist({deltaPercentX, 0.f}).x;
+        cameraUnadjustedCenter.x += deltaWorldX;
+        camera.setCameraCenter(
+            {cameraUnadjustedCenter.x + lookaheadState, cameraUnadjustedCenter.y});
     }
 
     float alpha;  // alpha to use for damping of camera position, *as well as* for smoothing of
@@ -61,4 +91,4 @@ struct DynamicCamera {
     mutable float lookaheadState{};  // the EMA of the accumulated lookahead offset in world coords
 };
 
-#endif // DYNAMIC_CAMERA_H
+#endif  // DYNAMIC_CAMERA_H
